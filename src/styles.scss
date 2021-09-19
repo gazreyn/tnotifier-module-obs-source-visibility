@@ -1,0 +1,36 @@
+@media only screen and (min-height: 158px) {
+    .source-name {
+        -webkit-line-clamp: 3!important;
+    }
+}
+.module {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    // background: linear-gradient(180deg,#00faff 0,#007df0);
+}
+.module.visible {
+    background: linear-gradient(120deg,hsl(145, 90%, 50%) 0%, hsl(145, 50%, 50%) 100%);
+}
+.module.hidden {
+    background: linear-gradient(120deg,hsl(0, 90%, 50%) 0%, hsl(0, 50%, 50%) 100%);
+}
+.source-name {
+    color: #fff;
+    margin: 10px 0;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    display: -webkit-box;
+    overflow: hidden;
+    max-width: 80vw;
+    text-align: center;
+}
+.source-name.inactive {
+    color: #b6b6b6;
+}
+#status-icon {
+    font-size: 45px;
+    width: 50px;
+    height: 50px;
+}
