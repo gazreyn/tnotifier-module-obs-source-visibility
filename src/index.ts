@@ -1,12 +1,18 @@
-import type { CardIO, PropList, PropItem, WS } from '@casthub/types';
-import { PropType } from '@casthub/types';
+import type { CardIO, PropList, PropItem, WS } from '@tnotifier/types';
+import { PropType } from '@tnotifier/types';
 import type { Scene } from 'obs-websocket-js';
 //
 import css from '@/styles.scss';
 
-export default class extends window.casthub.module {
+export default class extends window.tnotifier.module<{
+    sceneItem: string;
+}> {
 
     ws: WS | null;
+    sceneItemMap: {};
+    $icon: HTMLElement;
+    $label: HTMLElement;
+    $module: HTMLElement;
 
     constructor() {
         super();
@@ -42,7 +48,7 @@ export default class extends window.casthub.module {
         const { id } = this.identity;
 
         try {
-            this.ws = await window.casthub.ws(id);
+            this.ws = await window.tnotifier.ws(id);
         } catch(err) {
             console.error(err);
             throw new Error('Unable to connect to OBS Websocket');
