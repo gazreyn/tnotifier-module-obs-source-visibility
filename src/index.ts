@@ -1,18 +1,17 @@
-import type { CardIO, PropList, PropItem, WS } from '@tnotifier/types';
+import type { PropList, WS } from '@tnotifier/types';
 import { PropType } from '@tnotifier/types';
 import type { Scene } from 'obs-websocket-js';
 //
 import css from '@/styles.scss';
 
-export default class extends window.tnotifier.module<{
-    sceneItem: string;
-}> {
+export default class extends window.tnotifier.module<{ scene: string, item: string}> {
 
     ws: WS | null;
-    sceneItemMap: {};
-    $icon: HTMLElement;
-    $label: HTMLElement;
-    $module: HTMLElement;
+    selectedScene: string | null;
+    selectedItem: string | null;
+    uiIcon: HTMLElement;
+    uiLabel: HTMLElement;
+    uiModule: HTMLElement;
 
     constructor() {
         super();
@@ -24,50 +23,35 @@ export default class extends window.tnotifier.module<{
         this.css = css;
 
         /**
-         * Used to store all detected sources and scenes
-         *
-         * @type {Object}
-         */
-         this.sceneItemMap = {};
-
-         /**
          * The OBS WebSocket Instance for the action.
          *
          * @type {WS|null}
          */
-        this.ws = null;
+         this.ws = null;
 
-        // HTML Elements to manipulate
-        this.$icon = this.$container.querySelector('#status-icon');
-        this.$label = this.$container.querySelector('#label');
-        this.$module = this.$container;
+         this.selectedScene = null;
+         this.selectedItem = null;
+
+        // UI
+        this.uiIcon = this.$container.querySelector('#status-icon');
+        this.uiLabel = this.$container.querySelector('#label');
+        this.uiModule = this.$container;
     }
 
     async mounted(): Promise<void> {
 
         const { id } = this.identity;
 
-        try {
-            this.ws = await window.tnotifier.ws(id);
+        try { 
+            this.ws = await window.tnotifier.ws(id); 
         } catch(err) {
-            console.error(err);
             throw new Error('Unable to connect to OBS Websocket');
         }
 
-        this.sceneItemMap = await this.generateSceneItemMap();
-
-        await this.refresh();
-
-        this.ws.on('SceneItemVisibilityChanged', ({ sceneName, itemName }) => {
-            if (
-                sceneName !==
-                    this.sceneItemMap[this.props.sceneItem].sceneName &&
-                itemName !== this.sceneItemMap[this.props.sceneItem].sourceName
-            ) return;
-            this.refresh();
-        });
+        this.ws.on('SceneItemVisibilityChanged', (res) => { this.handleVisibilityChange(res); });
 
         await super.mounted();
+
     }
 
     /**
@@ -75,27 +59,47 @@ export default class extends window.tnotifier.module<{
      *
      * @return {Promise}
      */
-     async prepareProps(): Promise<PropList> {
-        let options = {};
+     async prepareProps(staged): Promise<PropList> {
+        let sceneOptions = {};
+        let itemOptions = {};
 
-        const items: string[] = Object.keys(this.sceneItemMap);
-        const itemCount: number = items.length;
+        const sceneList = await this.getScenes();
+        sceneList.forEach((scene) => {
+            sceneOptions[scene.name] = { text: scene.name, icon: 'widgets' }
+        })
 
-        for(let i = 0; i < itemCount; i++) {
-            options[items[i]] = { text: `${this.sceneItemMap[items[i]].sceneName} - ${this.sceneItemMap[items[i]].sourceName} `, icon: 'widgets'};
+        if(staged.scene) {
+            // Scene has been changed/set
+            const selectedScene = sceneList.find((scene) => {
+                return scene.name === staged.scene;
+            });
+
+            selectedScene.sources.forEach((item) => {
+                itemOptions[item.name] = { text: item.name, icon: 'widgets' }
+            });
+            
         }
 
-        const sceneItem : PropItem = {
-            type: PropType.Select,
-            required: true,
-            default: null,
-            label: 'Source',
-            help: 'Select a source to toggle',
-            options
-        };
-
         return {
-            sceneItem
+            scene: {
+                type: PropType.Select,
+                required: true,
+                default: null,
+                label: 'Scene',
+                help: 'Select the scene where your source is',
+                options: sceneOptions,
+                watch: true
+            },
+            ...(staged.scene ? {
+                item: {
+                    type: PropType.Select,
+                    default: null,
+                    required: true,
+                    label: 'Item',
+                    help: 'Select an item',
+                    options: itemOptions,
+                },
+            } : {}),
         };
     }
 
@@ -107,91 +111,75 @@ export default class extends window.tnotifier.module<{
      * @param {Boolean} initial Whether this is the initial value, `false` if it's an update
      */
     public onPropChange(key: string, value: any, initial: boolean): void {
-        //
-        if (initial) return;
-        if (key !== 'sceneItem') return; // Stop here if it's not sceneItem prop
+        switch(key) {
+            case 'scene': {
+                this.selectedScene = value;
+                break;
+            }
+            case 'item': {
+                this.selectedItem = value;
+                this.refresh();
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    public async getScenes(): Promise<Scene[]> {
+        const { scenes } = await this.ws.send('GetSceneList');
+        return scenes;
+    }
+
+    public handleVisibilityChange(response): void {
+
+        const { sceneName, itemName } = response;
+
+        if (sceneName !== this.selectedScene || itemName !== this.selectedItem) return;
 
         this.refresh();
     }
 
-    public async generateSceneItemMap(): Promise<any> {
-
-        const itemMap = {};
-
-        const scenes = await this.getScenes();
-        
-        scenes.forEach(scene => {
-            const { sources } = scene;
-            sources.forEach(source => {
-                const generatedName: string = `${encodeURI(scene.name)}|${encodeURI(source.name)}`;
-                itemMap[generatedName] = {
-                    sceneName: scene.name,
-                    sourceName: source.name
-                }
-            });
-        });
-
-        return itemMap;
-    }
-
     public async refresh(): Promise<void> {
         
-        if (
-            !this.sceneItemMap.hasOwnProperty(this.props.sceneItem) ||
-            this.props.sceneItem === null
-        ) {
-            return this.updateSourceState('No Source Selected!');
+        if (!this.selectedScene || !this.selectedItem) {
+            return this.updateUI('No Source Selected.');
         }
 
-        const isVisible: boolean = await this.getSourceVisibility(
-            this.sceneItemMap[this.props.sceneItem].sceneName,
-            this.sceneItemMap[this.props.sceneItem].sourceName
-        );
-
-        this.updateSourceState(
-            `${this.sceneItemMap[this.props.sceneItem].sceneName} - ${
-                this.sceneItemMap[this.props.sceneItem].sourceName
-            }`,
-            isVisible
-        );
+        // TODO: Wrap this in a try catch, if can't get item visibility, let user know.
+        const isVisible: boolean = await this.getItemVisibility(this.selectedScene, this.selectedItem);
+        this.updateUI(`${this.selectedScene} - ${this.selectedItem}`, isVisible);
     }
 
-    public updateSourceState(text: string, state: boolean = null): void {
-        switch (state) {
-            case null:
-                this.$icon.setAttribute('type', 'obs');
-                this.$module.className = 'module';
-                break;
-            case true:
-                this.$icon.setAttribute('type', 'visibility_on');
-                this.$module.className = 'module visible';
-                break;
-            case false:
-                this.$icon.setAttribute('type', 'visibility_off');
-                this.$module.className = 'module hidden';
-                break;
-            default:
-                this.$module.className = 'module';
-                break;
-        }
-        this.$label.innerText = text;
-    }
-
-    public async getSourceVisibility(scene: string, source: string): Promise<boolean> {
+    public async getItemVisibility(scene: string, item: string): Promise<boolean> {
         const sourceSettings = await this.ws.send('GetSceneItemProperties', {
             'scene-name': scene,
-            item: source,
+            'item': item,
         });
 
         const { visible } = sourceSettings;
         return visible;
     }
 
-    public async getScenes(): Promise<Scene[]> {
-        // @ts-ignore
-        const { scenes } = await this.ws.send('GetSceneList');
-        return scenes;
+    public updateUI(text: string, state: boolean = null): void {
+        switch (state) {
+            case null:
+                this.uiIcon.setAttribute('type', 'obs');
+                this.uiModule.className = 'module';
+                break;
+            case true:
+                this.uiIcon.setAttribute('type', 'visibility_on');
+                this.uiModule.className = 'module visible';
+                break;
+            case false:
+                this.uiIcon.setAttribute('type', 'visibility_off');
+                this.uiModule.className = 'module hidden';
+                break;
+            default:
+                this.uiModule.className = 'module';
+                break;
+        }
+        this.uiLabel.innerText = text;
     }
-
 
 }
