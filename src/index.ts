@@ -52,6 +52,8 @@ export default class extends window.tnotifier.module<{ scene: string, item: stri
 
         await super.mounted();
 
+        this.refresh();
+
     }
 
     /**
@@ -118,12 +120,16 @@ export default class extends window.tnotifier.module<{ scene: string, item: stri
             }
             case 'item': {
                 this.selectedItem = value;
-                this.refresh();
                 break;
             }
             default:
                 break;
         }
+
+        // If it's an initial value, we won't call refresh as socket connection probably hasn't been made yet
+        if (initial) return;
+
+        this.refresh();
     }
 
     public async getScenes(): Promise<Scene[]> {
@@ -147,7 +153,7 @@ export default class extends window.tnotifier.module<{ scene: string, item: stri
         }
 
         // TODO: Wrap this in a try catch, if can't get item visibility, let user know.
-        const isVisible: boolean = await this.getItemVisibility(this.selectedScene, this.selectedItem);
+        const isVisible = await this.getItemVisibility(this.selectedScene, this.selectedItem);
         this.updateUI(`${this.selectedScene} - ${this.selectedItem}`, isVisible);
     }
 
